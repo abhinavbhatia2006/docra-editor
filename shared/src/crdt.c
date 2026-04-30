@@ -3,6 +3,7 @@
 #include "crdt.h"
 
 CharNode* crdt_create_node(char value, Identifier* pos, int depth) {
+    // allocate and populate a new CRDT node
     CharNode* node = (CharNode*)malloc(sizeof(CharNode));
     if (!node) return NULL;
     node->value = value;
@@ -17,6 +18,7 @@ CharNode* crdt_create_node(char value, Identifier* pos, int depth) {
 }
 
 void crdt_init_document(Session* session) {
+    // initialize empty CRDT document
     Identifier head_pos[1] = {{0, 0}};
     CharNode* head = crdt_create_node('\0', head_pos, 1);
     
@@ -31,6 +33,7 @@ void crdt_init_document(Session* session) {
 }
 
 int crdt_compare_positions(Identifier* pos1, int depth1, Identifier* pos2, int depth2) {
+    // compare positions for ordering
     int min_depth = (depth1 < depth2) ? depth1 : depth2;
     for (int i = 0; i < min_depth; i++) {
         if (pos1[i].digit != pos2[i].digit) return pos1[i].digit - pos2[i].digit;
@@ -40,6 +43,7 @@ int crdt_compare_positions(Identifier* pos1, int depth1, Identifier* pos2, int d
 }
 
 void crdt_generate_position_between(Identifier* pos1, int depth1, Identifier* pos2, int depth2, Identifier* new_pos, int* new_depth, int site_id) {
+    // generate unique position between two nodes
     int depth = 0;
     while (depth < MAX_DEPTH) {
         int digit1 = (depth < depth1) ? pos1[depth].digit : 0;
@@ -63,6 +67,7 @@ void crdt_generate_position_between(Identifier* pos1, int depth1, Identifier* po
 }
 
 void crdt_insert(Session* session, CharNode* new_node) {
+    // insert node into linked list
     if (!new_node || !session->document_head) return;
 
     CharNode* current = session->document_head;

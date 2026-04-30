@@ -13,6 +13,7 @@ Session local_document_state;
 pthread_mutex_t client_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 int main(int argc, char *argv[]) {
+    // client entry and argument parsing
     if (argc < 4) {
         fprintf(stderr, "Usage: %s <SERVER_IP> <PORT> <ROOM_NAME> [PASSWORD]\n", argv[0]);
         exit(EXIT_FAILURE);
@@ -39,6 +40,7 @@ int main(int argc, char *argv[]) {
     }
 
     printf("Connecting to docra server at %s:%d...\n", ip, port);
+    // initiate TCP connection
     if (connect(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
         perror("[FATAL] Connection failed");
         exit(EXIT_FAILURE);
@@ -47,6 +49,7 @@ int main(int argc, char *argv[]) {
     memset(&local_document_state, 0, sizeof(Session));
     crdt_init_document(&local_document_state);
 
+    // request room join from server
     NetworkPacket join_req;
     memset(&join_req, 0, sizeof(NetworkPacket));
     join_req.type = PACKET_JOIN_REQ;
@@ -60,6 +63,7 @@ int main(int argc, char *argv[]) {
 
     NetworkPacket ack_packet;
     
+    // wait for server join response
     while (1) {
         if (recv(server_socket, &ack_packet, sizeof(NetworkPacket), MSG_WAITALL) <= 0) {
             fprintf(stderr, "[FATAL] Server disconnected during handshake\n");
@@ -83,6 +87,7 @@ int main(int argc, char *argv[]) {
         perror("[FATAL] Failed to start network listener thread");
         exit(EXIT_FAILURE);
     }
+    // background listener keeps local view synced
 
     tui_init();
     tui_input_loop();

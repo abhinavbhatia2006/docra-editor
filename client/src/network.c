@@ -10,6 +10,7 @@ extern int my_cursor_row;
 extern int my_cursor_col;
 
 static void get_nodes_at_cursor(CharNode** out_left, CharNode** out_right) {
+    // locate document node around cursor
     CharNode* current = local_document_state.document_head;
     CharNode* left_node = local_document_state.document_head;
     
@@ -43,6 +44,7 @@ static void get_nodes_at_cursor(CharNode** out_left, CharNode** out_right) {
 }
 
 void* network_listener_thread(void* arg) {
+    // listen for updates from server
     (void)arg;
     NetworkPacket incoming_packet;
 
@@ -102,6 +104,7 @@ void* network_listener_thread(void* arg) {
 }
 
 void network_send_insert(char ch) {
+    // local edit and network sync
     if (my_role == ROLE_GUEST) return;
 
     pthread_mutex_lock(&client_mutex);
@@ -139,6 +142,7 @@ void network_send_insert(char ch) {
 }
 
 void network_send_delete(void) {
+    // delete cursor char locally and send
     if (my_role == ROLE_GUEST) return;
 
     pthread_mutex_lock(&client_mutex);
@@ -170,6 +174,7 @@ void network_send_delete(void) {
 }
 
 void network_send_cursor(int row, int col) {
+    // send cursor position update
     NetworkPacket packet;
     memset(&packet, 0, sizeof(NetworkPacket));
     packet.type = PACKET_CURSOR_UPDATE;

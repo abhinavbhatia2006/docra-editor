@@ -15,7 +15,7 @@
 typedef struct {
     char room_name[MAX_ROOM_NAME];
     char text_content[MAX_DOC_SIZE];
-} IpcMessage;
+} IpcMessage; // message between server and archiver
 
 static Session* save_queue[QUEUE_SIZE];
 static int queue_head = 0;
@@ -31,6 +31,7 @@ void* archiver_consumer_worker(void* arg) {
     (void)arg;
     IpcMessage msg;
 
+    // consume queued save requests
     while (1) {
         sem_wait(&save_semaphore);
 
@@ -64,12 +65,14 @@ void* archiver_consumer_worker(void* arg) {
 }
 
 void archiver_init(void) {
+    // start archiver IPC and worker
     sem_init(&save_semaphore, 0, 0);
 
     if (pipe(ipc_pipe) == -1) {
         perror("[DOCRA] IPC Pipe creation failed");
         exit(EXIT_FAILURE);
     }
+    // set up parent-child pipe
 
     child_pid = fork();
 
@@ -85,6 +88,7 @@ void archiver_init(void) {
         char filename[128];
 
         while (read(ipc_pipe[0], &incoming_msg, sizeof(IpcMessage)) > 0) { //writelock
+            // write archived room data to disk
             snprintf(filename, sizeof(filename), "%s.log", incoming_msg.room_name);
             
             int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -110,6 +114,7 @@ void archiver_init(void) {
 }
 
 void archiver_queue_save(Session* session) {
+    // enqueue session data for async save
     pthread_mutex_lock(&queue_mutex);
     save_queue[queue_tail] = session;
     queue_tail = (queue_tail + 1) % QUEUE_SIZE;
@@ -122,6 +127,7 @@ void archiver_queue_save(Session* session) {
 #include <sys/file.h>
 
 void archiver_load_room(Session* session) { //read lock
+    // load room log file if present
     char filename[128];
     snprintf(filename, sizeof(filename), "%s.log", session->room_name);
     

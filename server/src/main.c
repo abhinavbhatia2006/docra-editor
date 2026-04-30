@@ -13,13 +13,15 @@
 #define MAX_CONNECTIONS 100
 
 int main(void) {
-    int server_socket, *new_socket;
+    int server_socket, *new_socket; // socket handles
     struct sockaddr_in server_addr, client_addr;
     socklen_t addr_size;
 
     printf("[DOCRA] Booting Core Systems...\n");
 
+    // initialize shared session state
     session_manager_init();
+    // start archiver child process
     archiver_init();
 
     server_socket = socket(AF_INET, SOCK_STREAM, 0);
@@ -29,6 +31,7 @@ int main(void) {
     }
 
     int opt = 1;
+    // reuse address to restart quickly
     if (setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
         perror("[FATAL] setsockopt failed");
         exit(EXIT_FAILURE);
@@ -52,6 +55,7 @@ int main(void) {
     }
 
     while (1) {
+        // accept a new client connection
         addr_size = sizeof(client_addr);
         int client_fd = accept(server_socket, (struct sockaddr *) &client_addr, &addr_size);
         
@@ -72,6 +76,7 @@ int main(void) {
         *new_socket = client_fd;
 
         pthread_t client_thread;
+        // hand off connection to worker thread
         if (pthread_create(&client_thread, NULL, client_thread_worker, (void*)new_socket) != 0) {
             perror("[WARNING] Failed to create thread");
             free(new_socket);
@@ -79,6 +84,7 @@ int main(void) {
             continue;
         }
 
+        // detach since we don't join worker threads
         pthread_detach(client_thread);
     }
 

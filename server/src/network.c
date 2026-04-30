@@ -10,7 +10,7 @@
 
 void* client_thread_worker(void* arg) {
     int client_socket = *(int*)arg;
-    free(arg); 
+    free(arg); // cleanup allocated socket pointer
 
     ClientInfo current_client;
     memset(&current_client, 0, sizeof(ClientInfo));
@@ -20,9 +20,10 @@ void* client_thread_worker(void* arg) {
     NetworkPacket incoming_packet;
 
     while (recv(client_socket, &incoming_packet, sizeof(NetworkPacket), MSG_WAITALL) > 0) {
-        
+        // process client packet
         switch (incoming_packet.type) {
             case PACKET_JOIN_REQ: {
+                // join request processing
                 current_session = session_get_or_create(
                     incoming_packet.payload.join_req.room_name, 
                     incoming_packet.payload.join_req.password, 
@@ -39,6 +40,7 @@ void* client_thread_worker(void* arg) {
                 current_client.role = session_authenticate_user(current_session, incoming_packet.payload.join_req.password);
                 
                 if (current_client.role == ROLE_GUEST && strlen(current_session->password) > 0 && strcmp(current_session->password, incoming_packet.payload.join_req.password) != 0) {
+                    // guest login fallback
                     NetworkPacket err = { .type = PACKET_ERROR };
                     strcpy(err.payload.error.message, "Invalid password. Joined as Read-Only Guest.");
                     send(client_socket, &err, sizeof(NetworkPacket), 0);
@@ -73,6 +75,7 @@ void* client_thread_worker(void* arg) {
             }
 
             case PACKET_INSERT: {
+                // apply client insert
                 if (!current_session || current_client.role == ROLE_GUEST) break;
 
                 CharNode* new_node = crdt_create_node(
@@ -92,6 +95,7 @@ void* client_thread_worker(void* arg) {
             }
 
             case PACKET_DELETE: {
+                // apply client delete
                 if (!current_session || current_client.role == ROLE_GUEST) break;
 
                 pthread_mutex_lock(&current_session->room_mutex);
@@ -103,6 +107,7 @@ void* client_thread_worker(void* arg) {
             }
 
             case PACKET_CURSOR_UPDATE: {
+                // broadcast cursor movement
                 if (!current_session) break;
                 current_client.cursor_row = incoming_packet.payload.cursor.row;
                 current_client.cursor_col = incoming_packet.payload.cursor.col;

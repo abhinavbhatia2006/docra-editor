@@ -25,8 +25,8 @@
 #define INSERTS_PER_CLIENT 16
 #define SYNC_WAIT_SECONDS 1
 
-static const char TEST_ROOM_BASE[] = "race_room_test";
-static char TEST_ROOM[MAX_ROOM_NAME];
+static const char TEST_ROOM_BASE[] = "race_room_test"; // base room name
+static char TEST_ROOM[MAX_ROOM_NAME]; // generated unique room
 static const char *TEST_PASSWORD = "";
 static pid_t server_pid = -1;
 static pthread_barrier_t start_barrier;
@@ -55,6 +55,7 @@ static int send_exact(int sock, const void *buffer, size_t size) {
 }
 
 static void start_server(const char *server_path, const char *project_root) {
+    // launch server for this test
     server_pid = fork();
     if (server_pid < 0) {
         perror("fork");
@@ -191,6 +192,7 @@ int main(void) {
     strcpy(project_root, exe_dir);
     strcat(project_root, "/..");
 
+    // generate a fresh room name for each test run
     time_t now = time(NULL);
     if (now == (time_t)-1) {
         perror("time");
@@ -223,6 +225,7 @@ int main(void) {
         return EXIT_FAILURE;
     }
 
+    // synchronize all test clients before sending edits
     pthread_barrier_init(&start_barrier, NULL, CLIENT_COUNT);
     pthread_t threads[CLIENT_COUNT];
 
@@ -237,6 +240,7 @@ int main(void) {
     }
 
     for (int i = 0; i < CLIENT_COUNT; i++) {
+        // wait for test clients to finish
         pthread_join(threads[i], NULL);
     }
 
@@ -286,6 +290,7 @@ int main(void) {
 
     printf("Expected length: %d\n", expected_count);
     printf("Actual length: %zu\n", actual_len);
+    // compare file contents against expected sequence
     printf("Expected head: %.40s\n", expected);
     printf("Actual head: %.40s\n", actual);
 

@@ -9,6 +9,7 @@ int my_cursor_row = 0;
 int my_cursor_col = 0;
 
 void tui_init(void) {
+    // setup terminal UI
     initscr();
     raw();
     keypad(stdscr, TRUE);
@@ -27,10 +28,12 @@ void tui_init(void) {
 }
 
 void tui_cleanup(void) {
+    // restore terminal state
     endwin();
 }
 
 void tui_render(void) {
+    // draw editor contents
     pthread_mutex_lock(&client_mutex);
     
     erase();
@@ -84,6 +87,7 @@ void tui_render(void) {
 
 // --- THE NEW SNAPPING ENGINE ---
 static void snap_cursor_to_document(void) {
+    // prevent cursor leaving text bounds
     pthread_mutex_lock(&client_mutex);
 
     int max_row = 0;
@@ -132,6 +136,7 @@ static void snap_cursor_to_document(void) {
 }
 
 void tui_input_loop(void) {
+    // handle keyboard input
     int ch;
     while (1) {
         tui_render();

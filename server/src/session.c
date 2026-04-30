@@ -7,16 +7,18 @@
 #include "../include/archiver.h"
 #include "../include/server.h"
 
-static Session global_sessions[MAX_ACTIVE_SESSIONS];
+static Session global_sessions[MAX_ACTIVE_SESSIONS]; // global rooms
 static int active_session_count = 0;
-static pthread_mutex_t master_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t master_mutex = PTHREAD_MUTEX_INITIALIZER; // sync guard
 
 void session_manager_init(void) {
+    // reset session pool
     memset(global_sessions, 0, sizeof(global_sessions));
     active_session_count = 0;
 }
 
 Session* session_get_or_create(const char* room_name, const char* password, ClientInfo* creator) {
+    // find or create room session
     pthread_mutex_lock(&master_mutex);
     
     for (int i = 0; i < active_session_count; i++) {
@@ -50,6 +52,7 @@ Session* session_get_or_create(const char* room_name, const char* password, Clie
 }
 
 Role session_authenticate_user(Session* session, const char* provided_password) {
+    // simple role-based auth
     if (strlen(session->password) == 0) {
         return ROLE_EDITOR;
     }
@@ -68,6 +71,7 @@ bool session_add_client(Session* session, ClientInfo* client) {
     }
     
     if (client->role != ROLE_ADMIN) {
+        // assign next site id
         int max_site_id = 0;
         for (int i = 0; i < session->client_count; i++) {
             if (session->clients[i]->site_id > max_site_id) {
@@ -85,6 +89,7 @@ bool session_add_client(Session* session, ClientInfo* client) {
 }
 
 void session_remove_client(Session* session, ClientInfo* client) {
+    // remove client from room list
     pthread_mutex_lock(&session->room_mutex);
     
     for (int i = 0; i < session->client_count; i++) {
@@ -101,6 +106,7 @@ void session_remove_client(Session* session, ClientInfo* client) {
 }
 
 void session_broadcast_packet(Session* session, NetworkPacket* packet, int exclude_socket_fd) {
+    // send packet to all clients in room
     pthread_mutex_lock(&session->room_mutex);
     
     for (int i = 0; i < session->client_count; i++) {
