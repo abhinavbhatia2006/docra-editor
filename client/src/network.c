@@ -33,14 +33,10 @@ static void get_nodes_at_cursor(CharNode** out_left, CharNode** out_right) {
         current = current->next;
     }
     
-    // THE CRDT FIX: 
-    // left_node is the exact visible character to the left of our cursor.
-    // To prevent Tombstone Collisions, the right_node MUST be the very next 
-    // physical node in memory (which might be an invisible tombstone). 
+   
     *out_left = left_node;
     *out_right = left_node->next; 
     
-    // Failsafe
     if (*out_right == NULL) {
         *out_right = local_document_state.document_tail;
     }

@@ -84,16 +84,20 @@ void archiver_init(void) {
         IpcMessage incoming_msg;
         char filename[128];
 
-        while (read(ipc_pipe[0], &incoming_msg, sizeof(IpcMessage)) > 0) {
+        while (read(ipc_pipe[0], &incoming_msg, sizeof(IpcMessage)) > 0) { //writelock
             snprintf(filename, sizeof(filename), "%s.log", incoming_msg.room_name);
             
             int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
             if (fd >= 0) {
-                flock(fd, LOCK_EX);
+                struct flock fl = {F_WRLCK, SEEK_SET, 0, 0, 0};
+                fcntl(fd, F_SETLKW, &fl);
+
                 if (write(fd, incoming_msg.text_content, strlen(incoming_msg.text_content)) < 0) {
                     perror("[DOCRA] File write failed");
                 }
-                flock(fd, LOCK_UN);
+
+                fl.l_type = F_UNLCK;
+                fcntl(fd, F_SETLK, &fl);
                 close(fd);
             }
         }
@@ -117,19 +121,21 @@ void archiver_queue_save(Session* session) {
 #include <fcntl.h>
 #include <sys/file.h>
 
-void archiver_load_room(Session* session) {
+void archiver_load_room(Session* session) { //read lock
     char filename[128];
     snprintf(filename, sizeof(filename), "%s.log", session->room_name);
     
     int fd = open(filename, O_RDONLY);
     if (fd < 0) return;
 
-    flock(fd, LOCK_SH);
+    struct flock fl = {F_RDLCK, SEEK_SET, 0, 0, 0};
+    fcntl(fd, F_SETLKW, &fl);
     
     char buffer[MAX_DOC_SIZE];
     ssize_t bytes_read = read(fd, buffer, MAX_DOC_SIZE - 1);
     
-    flock(fd, LOCK_UN);
+    fl.l_type = F_UNLCK;
+    fcntl(fd, F_SETLK, &fl);
     close(fd);
 
     if (bytes_read <= 0) return;
