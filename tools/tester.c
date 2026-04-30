@@ -25,9 +25,9 @@
 #define INSERTS_PER_CLIENT 16
 #define SYNC_WAIT_SECONDS 1
 
-static const char *TEST_ROOM = "race_room_test";
-static const char *TEST_PASSWORD = ""
-;
+static const char TEST_ROOM_BASE[] = "race_room_test";
+static char TEST_ROOM[MAX_ROOM_NAME];
+static const char *TEST_PASSWORD = "";
 static pid_t server_pid = -1;
 static pthread_barrier_t start_barrier;
 
@@ -109,8 +109,16 @@ static void *client_thread(void *arg) {
     NetworkPacket packet;
     memset(&packet, 0, sizeof(packet));
     packet.type = PACKET_JOIN_REQ;
-    strncpy(packet.payload.join_req.room_name, TEST_ROOM, MAX_ROOM_NAME - 1);
-    strncpy(packet.payload.join_req.password, TEST_PASSWORD, MAX_PASSWORD - 1);
+
+    size_t room_len = strlen(TEST_ROOM);
+    if (room_len >= MAX_ROOM_NAME) room_len = MAX_ROOM_NAME - 1;
+    memcpy(packet.payload.join_req.room_name, TEST_ROOM, room_len);
+    packet.payload.join_req.room_name[room_len] = '\0';
+
+    size_t pass_len = strlen(TEST_PASSWORD);
+    if (pass_len >= MAX_PASSWORD) pass_len = MAX_PASSWORD - 1;
+    memcpy(packet.payload.join_req.password, TEST_PASSWORD, pass_len);
+    packet.payload.join_req.password[pass_len] = '\0';
 
     if (send_exact(sock, &packet, sizeof(packet)) != sizeof(packet)) {
         perror("send join");
@@ -182,6 +190,18 @@ int main(void) {
     }
     strcpy(project_root, exe_dir);
     strcat(project_root, "/..");
+
+    time_t now = time(NULL);
+    if (now == (time_t)-1) {
+        perror("time");
+        return EXIT_FAILURE;
+    }
+    int pid = getpid();
+    int needed_room = snprintf(TEST_ROOM, sizeof(TEST_ROOM), "%s_%ld_%d", TEST_ROOM_BASE, (long)now, pid);
+    if (needed_room < 0 || needed_room >= (int)sizeof(TEST_ROOM)) {
+        fprintf(stderr, "Generated room name too long\n");
+        return EXIT_FAILURE;
+    }
 
     char server_path[PATH_MAX];
     size_t needed = strlen(project_root) + strlen("/docra_server") + 1;
