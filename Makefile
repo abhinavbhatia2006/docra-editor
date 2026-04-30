@@ -12,8 +12,9 @@ LOGGER_SRC = tools/logger.c
 SERVER_BIN = docra_server
 CLIENT_BIN = docra_client
 LOGGER_BIN = logger_dashboard
+TESTER_BIN = tools/tester
 
-all: $(SERVER_BIN) $(CLIENT_BIN) $(LOGGER_BIN)
+all: $(SERVER_BIN) $(CLIENT_BIN) $(LOGGER_BIN) $(TESTER_BIN)
 
 $(SERVER_BIN): $(SERVER_SRC) $(SHARED_SRC)
 	$(CC) $(CFLAGS) $(SERVER_INC) $^ -o $@
@@ -24,5 +25,11 @@ $(CLIENT_BIN): $(CLIENT_SRC) $(SHARED_SRC)
 $(LOGGER_BIN): $(LOGGER_SRC)
 	$(CC) -Wall -Wextra -O2 $< -o $@
 
+$(TESTER_BIN): tools/tester.c
+	$(CC) $(CFLAGS) -Ishared/include -pthread $< -o $@
+
+test: $(TESTER_BIN)
+	./$(TESTER_BIN)
+
 clean:
-	rm -f $(SERVER_BIN) $(CLIENT_BIN) $(LOGGER_BIN) *.log
+	rm -f $(SERVER_BIN) $(CLIENT_BIN) $(LOGGER_BIN) $(TESTER_BIN) *.log
