@@ -1,402 +1,334 @@
-# 🚀 **DOCRA** – A High-Performance Collaborative Terminal Editor
+# docra
 
-## What is DOCRA?
+> A high-performance, multithreaded collaborative terminal editor built in pure C — engineered from scratch with a custom CRDT synchronization engine, raw TCP sockets, and strict POSIX concurrency control.
 
-**DOCRA** is a blazing-fast, multithreaded collaborative terminal editor built from the ground up in pure C. It's engineered for teams that need real-time collaborative editing capabilities directly in their terminal, without the bloat of web browsers or heavy dependencies.
-
-Unlike other collaborative editors, DOCRA implements a **custom Conflict-free Replicated Data Type (CRDT)** synchronization engine, raw TCP sockets for networking, and strict POSIX concurrency control—giving you maximum performance, reliability, and control.
-
-### Core Philosophy
-
-- **Performance First**: Written in pure C with zero garbage collection overhead
-- **Simplicity**: Minimal dependencies, built with POSIX standards
-- **Concurrency**: Multithreaded architecture with proper mutex synchronization
-- **Persistence**: Automatic disk archiving with file locking
-- **Real-time**: Sub-millisecond latency CRDT synchronization
+![Language](https://img.shields.io/badge/language-C-blue?style=flat-square)
+![Build](https://img.shields.io/badge/build-make-brightgreen?style=flat-square)
+![License](https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square)
+![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-informational?style=flat-square)
+![Course](https://img.shields.io/badge/course-Operating%20Systems%20(2nd%20Year)-orange?style=flat-square)
 
 ---
 
-## 🎯 Key Features
+## Table of Contents
 
-### 1. **Real-Time Collaborative Editing**
-Multiple users can edit the same document simultaneously. Every keystroke is synchronized across all connected clients instantly using a custom CRDT algorithm.
-
-### 2. **Custom CRDT Engine**
-The `crdt.c` module implements a position-based CRDT with:
-- Unique identifiers (site_id + digit pairs) for every character
-- Automatic conflict resolution—no merge conflicts, ever
-- Efficient position generation between any two nodes
-- Support for arbitrary insertion depth (up to MAX_DEPTH levels)
-
-### 3. **Role-Based Access Control**
-- **ADMIN**: Room creator, full read/write permissions
-- **EDITOR**: Password-authenticated users, can read and write
-- **GUEST**: Read-only access, useful for spectators or demos
-
-### 4. **Persistent Storage**
-Documents are automatically archived to disk (`{room_name}.log`) with POSIX file locking to prevent concurrent write corruption.
-
-### 5. **Rich Terminal UI**
-- Built on ncurses for cross-platform terminal rendering
-- Color-coded remote cursors (different colors for each collaborator)
-- Real-time cursor position tracking
-- Status bar showing room info, role, and site ID
-
-### 6. **Multi-Session Support**
-Server can handle up to **100 concurrent connections** across unlimited rooms.
+- [Overview](#overview)
+- [OS Concepts Demonstrated](#os-concepts-demonstrated)
+- [Architecture](#architecture)
+- [Project Structure](#project-structure)
+- [Components](#components)
+- [How CRDT Works in docra](#how-crdt-works-in-docra)
+- [Prerequisites](#prerequisites)
+- [Building](#building)
+- [Running](#running)
+- [Testing](#testing)
+- [Makefile Targets](#makefile-targets)
+- [Design Decisions](#design-decisions)
+- [Known Limitations](#known-limitations)
+- [License](#license)
 
 ---
 
-## 🏗️ Architecture
+## Overview
+
+**docra** is a real-time collaborative text editor that runs entirely in the terminal. Multiple clients connect to a central server over TCP and edit a shared document simultaneously. All edits are conflict-free and converge to a consistent state across every peer — even under concurrent, out-of-order operations — thanks to a hand-rolled **Conflict-free Replicated Data Type (CRDT)** engine implemented entirely in C.
+
+This project was built as the capstone assignment for a 2nd-year Operating Systems course, with the goal of applying systems-programming theory — process/thread management, synchronization, IPC, and network I/O — to a real, working application.
+
+---
+
+## OS Concepts Demonstrated
+
+| Concept | Where Applied |
+|---|---|
+| **POSIX Threads (`pthreads`)** | Each client connection is handled by a dedicated server thread |
+| **Mutex / Condition Variables** | Guards shared document state across concurrent writer threads |
+| **Raw TCP Sockets** | Client–server communication via `socket()`, `bind()`, `listen()`, `accept()` |
+| **`select()` / Non-blocking I/O** | TUI client multiplexes keyboard input and network reads |
+| **Process Synchronization** | CRDT merge operations are lock-protected to prevent torn reads/writes |
+| **File I/O & Archiving** | Session archiver persists document snapshots to disk |
+| **Signal Handling** | Graceful shutdown on `SIGINT`/`SIGTERM` |
+| **Terminal Control (ncurses)** | Raw-mode terminal UI with real-time rendering |
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│                    docra_server                     │
+│                                                     │
+│  main thread                                        │
+│   └─ accept() loop                                  │
+│        └─ per-client pthread ──► session manager    │
+│                                      │              │
+│                              ┌───────▼──────┐       │
+│                              │  CRDT Engine │       │
+│                              │  (shared/)   │       │
+│                              └───────┬──────┘       │
+│                                      │              │
+│                              ┌───────▼──────┐       │
+│                              │   Archiver   │       │
+│                              │ (disk I/O)   │       │
+│                              └──────────────┘       │
+└──────────────────────┬──────────────────────────────┘
+         TCP           │          TCP
+   ┌─────▼─────┐       │    ┌─────▼─────┐
+   │  Client A │       │    │  Client B │
+   │  (TUI)    │       │    │  (TUI)    │
+   └───────────┘       │    └───────────┘
+                  (more peers)
+```
+
+- The **server** maintains a single authoritative copy of the document, protected by a mutex.
+- Each connecting client gets its own thread on the server. That thread reads incoming CRDT operations, applies them to the shared document, and broadcasts the result to all other connected clients.
+- Each **client** runs a `ncurses`-based TUI. A background thread handles inbound network messages while the foreground thread handles keyboard input and re-renders the screen.
+- The **CRDT engine** (in `shared/`) is used by both sides, ensuring that the same merge logic is applied consistently.
+
+---
+
+## Project Structure
 
 ```
 docra-editor/
-├── shared/                    # Shared logic between client & server
-│   └── src/crdt.c            # Custom CRDT synchronization engine
-├── server/                    # Server-side components
+├── client/
+│   ├── include/
+│   │   └── client.h          # Client-side type definitions and prototypes
 │   └── src/
-│       ├── main.c            # Server bootstrap & TCP listener
-│       ├── network.c         # Client thread handlers & packet routing
-│       ├── session.c         # Room/session management
-│       └── archiver.c        # Disk persistence & IPC
-├── client/                    # Client-side components
+│       ├── main.c            # Entry point: argument parsing, connect, launch TUI
+│       ├── network.c         # TCP connect, send/recv loop, background reader thread
+│       └── tui.c             # ncurses UI: rendering, keyboard handling
+│
+├── server/
+│   ├── include/
+│   │   └── server.h          # Server-side type definitions and prototypes
 │   └── src/
-│       ├── main.c            # Client bootstrap & handshake
-│       ├── network.c         # Server communication & CRDT sync
-│       └── tui.c             # Terminal UI rendering
-└── tools/                     # Utilities
-    ├── tester.c              # CRDT unit tests
-    └── logger.c              # Dashboard for debugging
+│       ├── main.c            # Entry point: socket setup, accept loop, signal handlers
+│       ├── network.c         # Per-client thread, broadcast logic
+│       ├── session.c         # Session management, client registry
+│       └── archiver.c        # Periodic document snapshots to disk
+│
+├── shared/
+│   ├── include/
+│   │   └── crdt.h            # CRDT node/document types, operation structs
+│   └── src/
+│       └── crdt.c            # Insert/delete operations, merge, total ordering
+│
+├── tools/
+│   ├── logger.c              # Standalone log dashboard (logger_dashboard binary)
+│   └── tester.c              # Concurrent stress tester (spawns threads, fires ops)
+│
+├── .vscode/                  # Editor configuration (optional)
+├── Makefile
+├── LICENSE
+└── README.md
 ```
 
 ---
 
-## 🔧 How It Works
+## Components
 
-### Client-Server Flow
+### `server/`
 
-1. **Client connects**: `docra_client <SERVER_IP> <PORT> <ROOM_NAME> [PASSWORD]`
-2. **Handshake**: Client sends `PACKET_JOIN_REQ` with room and password
-3. **Role assignment**: Server responds with `PACKET_JOIN_ACK` (assigns site_id and role)
-4. **History sync**: Server sends full document history to new client
-5. **Real-time sync**: Client and server exchange `PACKET_INSERT`, `PACKET_DELETE`, and `PACKET_CURSOR_UPDATE` packets
+| File | Responsibility |
+|---|---|
+| `main.c` | Binds to a TCP port, spawns a per-client `pthread` on each `accept()`, installs `SIGINT` handler for graceful shutdown |
+| `network.c` | Per-client thread loop: deserializes incoming CRDT operations, acquires the document mutex, calls the CRDT merge function, then broadcasts the updated operation to all other clients |
+| `session.c` | Maintains the connected client list; provides thread-safe add/remove/iterate primitives |
+| `archiver.c` | Periodically serializes the document state to a `.log` file so sessions can survive a server restart |
 
-### CRDT Position Generation
+### `client/`
 
-When you type at a cursor position:
-1. Client identifies the left and right CRDT nodes around the cursor
-2. Generates a unique position **between** those two nodes using `crdt_generate_position_between()`
-3. Sends the insert packet to server
-4. Server broadcasts to all other clients
-5. All clients independently apply the same CRDT operation → **conflict-free result**
+| File | Responsibility |
+|---|---|
+| `main.c` | Parses host/port args, establishes TCP connection, launches TUI and network threads |
+| `network.c` | Background reader thread: blocks on `recv()`, deserializes inbound operations, applies them to the local CRDT copy, signals the TUI to redraw |
+| `tui.c` | ncurses front-end: raw-mode keyboard capture, cursor movement, character insert/delete, full-document re-render on each update |
 
-### Persistence Architecture
+### `shared/`
 
-The archiver runs as a **separate child process** (forked):
-- **Parent (server)**: Queues save requests asynchronously
-- **Child (archiver)**: Reads from IPC pipe, writes to disk with file locks
-- **Benefits**: Disk I/O doesn't block the networking thread
+The CRDT engine is compiled into both binaries.
+
+| File | Responsibility |
+|---|---|
+| `crdt.h` | Defines `CRDTNode` (character + unique ID + tombstone flag), `CRDTDoc` (sorted node array), and `CRDTOp` (the wire-format operation struct) |
+| `crdt.c` | `crdt_insert()`, `crdt_delete()`, `crdt_merge()` — the core conflict-resolution logic; implements a position-based unique ID scheme so concurrent inserts at the same position resolve deterministically |
+
+### `tools/`
+
+| Binary | Purpose |
+|---|---|
+| `logger_dashboard` | Tails and pretty-prints server `.log` files in real time |
+| `tester` | Stress-test harness: spawns multiple pthreads, each firing a burst of random insert/delete operations at the server to validate CRDT convergence and lock correctness |
 
 ---
 
-## 📦 Building & Running
+## How CRDT Works in docra
 
-### Prerequisites
+A CRDT (Conflict-free Replicated Data Type) is a data structure designed so that concurrent edits from multiple sources can always be merged without conflicts.
 
-- **Linux/Unix** system (macOS supported with ncurses)
-- `gcc` compiler
-- `ncurses` development headers (`libncurses-dev` on Ubuntu/Debian)
-- `pthreads` (included in glibc)
+docra implements a **sequence CRDT** (similar in spirit to LSEQ or Logoot):
 
-### Compile
+1. Every character in the document is represented as a `CRDTNode` with a globally unique ID (derived from a `{client_id, logical_clock}` pair).
+2. An **insert** operation carries the new character plus the ID of the node it should follow. Because IDs are globally unique and the ordering is deterministic, two clients inserting at the "same" position will always resolve to the same final order.
+3. A **delete** operation is a **tombstone** — the node is marked deleted but not removed from the array. This ensures that a delete that arrives after a concurrent insert on the same position still applies correctly.
+4. The server serializes all operations and broadcasts them. Every client applies every operation through the same `crdt_merge()` function, guaranteeing **eventual consistency** — all replicas converge to the same document.
+
+This satisfies the core OS/distributed-systems property: **commutativity and idempotency** of operations means that regardless of the order messages arrive, the final document state is identical on every peer.
+
+---
+
+## Prerequisites
+
+- GCC (or any C99-compatible compiler)
+- GNU Make
+- `ncurses` development library
+- POSIX-compliant OS (Linux or macOS)
+- `pthreads` (included in glibc/libpthread on Linux)
+
+**Install on Ubuntu/Debian:**
+```bash
+sudo apt update
+sudo apt install build-essential libncurses-dev
+```
+
+**Install on macOS (Homebrew):**
+```bash
+brew install ncurses
+```
+
+---
+
+## Building
+
+Clone the repository and build all targets:
 
 ```bash
-make all
+git clone https://github.com/abhinavbhatia2006/docra-editor.git
+cd docra-editor
+make
 ```
 
-This generates:
-- `docra_server` – The collaborative server
-- `docra_client` – The client application
-- `logger_dashboard` – Debugging utility
-- `tester` – CRDT test suite
+This produces four binaries in the project root:
 
-### Start the Server
+| Binary | Description |
+|---|---|
+| `docra_server` | The collaboration server |
+| `docra_client` | The terminal editor client |
+| `logger_dashboard` | Real-time log viewer |
+| `tools/tester` | Concurrent stress-test harness |
+
+---
+
+## Running
+
+### 1. Start the server
 
 ```bash
-./docra_server
+./docra_server <port>
 ```
 
-Output:
-```
-[DOCRA] Booting Core Systems...
-[DOCRA] Server listening on port 8080. Ready for connections.
-```
-
-### Connect Clients
-
-**Terminal 1 (Client 1 - ADMIN):**
+Example:
 ```bash
-./docra_client localhost 8080 my_room password123
+./docra_server 8080
 ```
 
-**Terminal 2 (Client 2 - EDITOR):**
-```bash
-./docra_client localhost 8080 my_room password123
-```
+The server will listen for incoming client connections on the specified port and log activity to `server.log`.
 
-**Terminal 3 (Client 3 - GUEST, read-only):**
-```bash
-./docra_client localhost 8080 my_room wrongpassword
-```
+### 2. Connect a client
 
-Now start typing in any client—watch your changes appear instantly in all connected editors!
-
-### Run Tests
+Open a new terminal (or connect from a remote machine):
 
 ```bash
-make test
+./docra_client <host> <port>
 ```
 
----
-
-## 🎮 Usage
-
-### Keyboard Controls
-
-| Key | Action |
-|-----|--------|
-| Arrow Keys | Move cursor |
-| Backspace | Delete character before cursor |
-| Enter | Insert newline |
-| Printable chars | Insert character |
-| ESC | Disconnect and quit |
-
-### Status Bar
-
-At the bottom of the screen:
-- **Room Name**: Current collaborative room
-- **Role**: Your permission level (ADMIN/EDITOR/GUEST)
-- **Site ID**: Your unique identifier in the CRDT
-- **Remote Cursors**: Colored blocks showing other users' positions
-
----
-
-## 🔐 Security & Access Control
-
-### Authentication
-
-- **No password**: Anyone can join as EDITOR
-- **With password**: Correct password → EDITOR, incorrect → GUEST (read-only)
-- **First joiner**: Always becomes ADMIN (room creator)
-
-### Network Security
-
-- TCP sockets with standard OS-level protections
-- No encryption (intended for trusted networks; could be added with TLS)
-- Proper resource cleanup on disconnect
-
----
-
-## 📊 Performance Characteristics
-
-### Latency
-
-- **Insert operation**: ~1-2ms (local CRDT operation)
-- **Network roundtrip**: ~10-50ms (typical LAN)
-- **Cursor sync**: Real-time with 30ms UI refresh rate
-
-### Throughput
-
-- **Characters per second per client**: 1000+ CPM fully sustained
-- **Concurrent connections**: Up to 100 simultaneous clients
-- **Active rooms**: Unlimited (limited by server memory)
-
-### Memory Usage
-
-- **Per client**: ~100KB (socket buffer + state)
-- **Per room**: ~50KB base + document size
-- **Total overhead**: Typically <10MB for 100 concurrent users
-
----
-
-## 🧠 Deep Dive: CRDT Algorithm
-
-### Identifier System
-
-Each character in the document has a unique **Identifier sequence**:
-
-```c
-struct {
-    int digit;      // Position value (0 to CRDT_BASE)
-    int site_id;    // Originating client ID (tiebreaker)
-}
+Example (local):
+```bash
+./docra_client 127.0.0.1 8080
 ```
 
-### Position Generation Example
+Repeat in as many terminals as you like — all connected clients will see each other's edits in real time.
 
-```
-Left node:  [(100, site_1)]
-Right node: [(200, site_2)]
-
-Generated: [(150, site_3)] ← Inserted between
-```
-
-If nodes are too close, the algorithm **increases depth**:
-
-```
-Left:  [(100, site_1), (0, site_1)]
-Right: [(100, site_1), (100, site_2)]
-
-Generated: [(100, site_1), (50, site_3)] ← Three-level position
-```
-
-### Correctness Guarantees
-
-✅ **Strong Eventual Consistency**: All clients converge to the same document state  
-✅ **Causality Preservation**: If A sees B's edit, everyone sees A before B  
-✅ **Commutativity**: Order of non-overlapping edits doesn't matter  
-
----
-
-## 🛠️ Concurrency Model
-
-### Thread Safety
-
-- **Client**: Uses `pthread_mutex_t` to protect shared document state
-- **Server**: Each client runs in a dedicated thread
-  - Room state protected by `room_mutex`
-  - Global session list protected by `master_mutex`
-- **Archiver**: Separate child process (no race conditions)
-
-### Lock Hierarchy
-
-```
-master_mutex (global sessions)
-  └─ room_mutex (per-session)
-      └─ client_mutex (client-local)
-```
-
-No circular dependencies → deadlock-free.
-
----
-
-## 📝 Persistence Format
-
-Documents are stored as plain text files:
-
-```
-my_room.log         # Contains the rendered text document
-another_room.log    # CRDT metadata is reconstructed on load
-```
-
-When a room loads:
-1. Server reads `{room_name}.log` from disk
-2. Reconstructs CRDT nodes with base positions (1000, 2000, 3000...)
-3. New clients receive full history
-
----
-
-## 🚀 Extension Ideas
-
-### Easy Additions
-
-- [ ] **Syntax highlighting** – Add language-specific ncurses color coding
-- [ ] **Undo/Redo** – Store operation history per client
-- [ ] **User authentication** – Add token-based auth instead of passwords
-- [ ] **Search/Replace** – Implement vim-like search across document
-
-### Medium Complexity
-
-- [ ] **TLS encryption** – Secure network transport
-- [ ] **Compression** – CRDT packet compression for high-latency links
-- [ ] **Conflict visualization** – Highlight simultaneous edits
-- [ ] **Comment annotations** – Thread-based comments on selections
-
-### Advanced
-
-- [ ] **Sharding** – Partition large documents across multiple servers
-- [ ] **Byzantine fault tolerance** – Tolerate malicious clients
-- [ ] **Op-based CRDT** – Switch to operation-based sync for better compression
-- [ ] **Peer-to-peer mode** – Direct client-to-client sync without server
-
----
-
-## 🐛 Debugging
-
-### Enable Logging
-
-The `logger_dashboard` utility can be used to monitor network traffic:
+### 3. (Optional) Watch the log dashboard
 
 ```bash
 ./logger_dashboard
 ```
 
-### Run Test Suite
+### Basic TUI Controls
+
+| Key | Action |
+|---|---|
+| Arrow keys | Move cursor |
+| Any printable character | Insert at cursor |
+| `Backspace` / `Delete` | Delete character |
+| `Ctrl+Q` or `Ctrl+C` | Quit |
+
+---
+
+## Testing
+
+Run the built-in concurrent stress tester:
 
 ```bash
 make test
-./tools/tester
 ```
 
-Tests verify:
-- CRDT position generation correctness
-- Node insertion ordering
-- Deletion marking
-- Concurrent insertion scenarios
+This compiles and executes `tools/tester`, which spawns multiple threads that simultaneously connect to a running server and fire random insert/delete operations. The harness then verifies that all replicas converge to the same final document state, confirming CRDT correctness and the absence of data races.
 
-### Monitor Network Packets
+> **Note:** A `docra_server` instance must be running before executing `make test`.
 
-Use `tcpdump` to capture raw socket traffic:
+---
 
-```bash
-sudo tcpdump -i lo port 8080 -A
+## Makefile Targets
+
+| Target | Description |
+|---|---|
+| `make` / `make all` | Build all four binaries |
+| `make test` | Build and run the stress-test harness |
+| `make clean` | Remove all compiled binaries and `.log` files |
+
+**Compiler flags used:**
+
+```
+-Wall -Wextra -O2 -pthread
 ```
 
----
-
-## 📄 License
-
-MIT License – See `LICENSE` file.
-
-Free to use, modify, and distribute for personal and commercial projects.
+`-pthread` links `libpthread` and enables POSIX thread-safety annotations in glibc headers.
 
 ---
 
-## 🤝 Contributing
+## Design Decisions
 
-Found a bug? Have a feature idea? Feel free to:
+**Why pure C?**
+The assignment targets systems-level OS concepts. C gives direct control over memory, sockets, and thread primitives — no runtime abstractions hiding what's actually happening.
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/awesome-thing`)
-3. Make your changes and test thoroughly
-4. Submit a pull request
+**Why a sequence CRDT instead of Operational Transformation (OT)?**
+OT requires a central server to serialize and transform operations, which couples the consistency model to the network topology. A CRDT is commutative and idempotent by construction — correct convergence is a mathematical property of the data structure, not an operational guarantee that depends on message ordering.
 
----
+**Why one thread per client on the server?**
+For a course project with a bounded number of peers, the thread-per-connection model is straightforward to reason about and makes POSIX mutex semantics easy to demonstrate. A production system would use an event loop (`epoll`/`kqueue`) for scalability.
 
-## 📞 Support & Questions
-
-For questions about CRDT algorithms, concurrent programming, or how DOCRA works:
-
-- Review the inline code comments in `shared/src/crdt.c`
-- Check `server/src/network.c` for packet handling logic
-- See `client/src/tui.c` for UI/input event handling
+**Why tombstones instead of physical deletion?**
+Physically removing a node changes array indices, which can corrupt the unique-ID-based position references held by in-flight operations from other clients. Tombstoning preserves the logical structure of the CRDT until it is safe to garbage-collect.
 
 ---
 
-## 🎓 Educational Value
+## Known Limitations
 
-DOCRA is an excellent learning resource for:
-
-- **Systems Programming**: Real-world C with POSIX threading
-- **Distributed Systems**: CRDT algorithms and eventual consistency
-- **Network Programming**: TCP sockets, packet serialization
-- **Concurrent Data Structures**: Mutex-protected linked lists
-- **Terminal UI Development**: ncurses library usage
+- The document is held entirely in memory; very large files may exhaust the CRDT node array.
+- No authentication — any client that can reach the port can connect and edit.
+- The archiver writes a full document snapshot on each interval rather than an incremental delta log.
+- No TLS; traffic is plaintext TCP.
+- Tested on Linux (Ubuntu 22.04/24.04) and macOS 13+. Windows is not supported (requires WSL).
 
 ---
 
-**Made with ❤️ in pure C**
+## License
+
+This project is licensed under the **MIT License**. See [`LICENSE`](LICENSE) for the full text.
 
 ---
 
-*Last updated: April 2026*
+*Built for the Operating Systems course — 2nd Year B.E. Computer Science.*
